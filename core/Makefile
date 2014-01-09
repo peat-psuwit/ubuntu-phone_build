@@ -377,13 +377,38 @@ INTERNAL_RAMDISK_FILES := $(filter $(TARGET_ROOT_OUT)/%, \
 	$(ALL_GENERATED_SOURCES) \
 	$(ALL_DEFAULT_INSTALLED_MODULES))
 
+# Default ramdisk comes now from Ubuntu
 BUILT_RAMDISK_TARGET := $(PRODUCT_OUT)/ramdisk.img
+BUILT_RAMDISK_TARGET_ANDROID := $(PRODUCT_OUT)/android-ramdisk.img
 
 # We just build this directly to the install location.
-INSTALLED_RAMDISK_TARGET := $(BUILT_RAMDISK_TARGET)
-$(INSTALLED_RAMDISK_TARGET): $(MKBOOTFS) $(INTERNAL_RAMDISK_FILES) | $(MINIGZIP)
-	$(call pretty,"Target ram disk: $@")
+INSTALLED_RAMDISK_TARGET_ANDROID := $(BUILT_RAMDISK_TARGET_ANDROID)
+$(INSTALLED_RAMDISK_TARGET_ANDROID): $(MKBOOTFS) $(INTERNAL_RAMDISK_FILES) | $(MINIGZIP)
+	$(call pretty,"Target Android ram disk: $@")
 	$(hide) $(MKBOOTFS) $(TARGET_ROOT_OUT) | $(MINIGZIP) > $@
+
+BOOT_ANDROID_RAMDISK_IMG := $(TARGET_OUT)/boot/android-ramdisk.img
+
+$(BOOT_ANDROID_RAMDISK_IMG): $(INSTALLED_RAMDISK_TARGET_ANDROID)
+	$(hide) mkdir -p $(dir $@)
+	$(hide) $(ACP) $(INSTALLED_RAMDISK_TARGET_ANDROID) $@
+
+# Download the Ubuntu Touch ramdisk from the archive
+TARGET_UBUNTU_INITRD_PKG := ubuntu-touch-generic-initrd
+TARGET_UBUNTU_INITRD_SERIES := trusty
+TARGET_OUT_UBUNTU_INITRD := $(TARGET_OUT_UBUNTU)/$(TARGET_UBUNTU_INITRD_PKG)
+TARGET_UBUNTU_INITRD := $(TARGET_OUT_UBUNTU_INITRD)/usr/lib/ubuntu-touch-generic-initrd/initrd.img-touch
+INSTALLED_RAMDISK_TARGET := $(BUILT_RAMDISK_TARGET)
+
+.PHONY: $(INSTALLED_RAMDISK_TARGET)
+$(INSTALLED_RAMDISK_TARGET): $(MKBOOTFS) | $(MINIGZIP)
+	$(call pretty,"Target Ubuntu Touch ram disk: $@")
+	$(hide) rm -rf $(TARGET_OUT_UBUNTU_INITRD) $(TARGET_UBUNTU_ROOT_OUT)
+	$(hide) mkdir -p $(TARGET_OUT_UBUNTU_INITRD) $(TARGET_UBUNTU_ROOT_OUT)
+	$(hide) $(PULL_LP_BIN) $(TARGET_UBUNTU_INITRD_PKG) -o $(TARGET_OUT_UBUNTU_INITRD) $(TARGET_UBUNTU_INITRD_SERIES)
+	$(hide) dpkg-deb -x $(TARGET_OUT_UBUNTU_INITRD)/$(TARGET_UBUNTU_INITRD_PKG)*.deb $(TARGET_OUT_UBUNTU_INITRD)
+	$(hide) $(ACP) $(TARGET_UBUNTU_INITRD) $@
+	$(hide) cd $(TARGET_UBUNTU_ROOT_OUT) && $(MINIGZIP) -c -d $@ | cpio -id
 
 .PHONY: ramdisk-nodeps
 ramdisk-nodeps: $(MKBOOTFS) | $(MINIGZIP)
@@ -394,6 +419,13 @@ ifneq ($(strip $(TARGET_NO_KERNEL)),true)
 
 # -----------------------------------------------------------------
 # the boot image, which is a collection of other images.
+INTERNAL_BOOTIMAGE_ARGS_ANDROID := \
+	$(addprefix --second ,$(INSTALLED_2NDBOOTLOADER_TARGET)) \
+	--kernel $(INSTALLED_KERNEL_TARGET) \
+	--ramdisk $(INSTALLED_RAMDISK_TARGET_ANDROID)
+
+INTERNAL_BOOTIMAGE_FILES_ANDROID := $(filter-out --%,$(INTERNAL_BOOTIMAGE_ARGS_ANDROID))
+
 INTERNAL_BOOTIMAGE_ARGS := \
 	$(addprefix --second ,$(INSTALLED_2NDBOOTLOADER_TARGET)) \
 	--kernel $(INSTALLED_KERNEL_TARGET) \
@@ -403,27 +435,35 @@ INTERNAL_BOOTIMAGE_FILES := $(filter-out --%,$(INTERNAL_BOOTIMAGE_ARGS))
 
 BOARD_KERNEL_CMDLINE := $(strip $(BOARD_KERNEL_CMDLINE))
 ifdef BOARD_KERNEL_CMDLINE
-  INTERNAL_BOOTIMAGE_ARGS += --cmdline "$(BOARD_KERNEL_CMDLINE)"
+  INTERNAL_BOOTIMAGE_ARGS_COMMON += --cmdline "$(BOARD_KERNEL_CMDLINE)"
 endif
 
 BOARD_KERNEL_BASE := $(strip $(BOARD_KERNEL_BASE))
 ifdef BOARD_KERNEL_BASE
-  INTERNAL_BOOTIMAGE_ARGS += --base $(BOARD_KERNEL_BASE)
+  INTERNAL_BOOTIMAGE_ARGS_COMMON += --base $(BOARD_KERNEL_BASE)
 endif
 
 BOARD_KERNEL_PAGESIZE := $(strip $(BOARD_KERNEL_PAGESIZE))
 ifdef BOARD_KERNEL_PAGESIZE
-  INTERNAL_BOOTIMAGE_ARGS += --pagesize $(BOARD_KERNEL_PAGESIZE)
+  INTERNAL_BOOTIMAGE_ARGS_COMMON += --pagesize $(BOARD_KERNEL_PAGESIZE)
 endif
 
 INSTALLED_BOOTIMAGE_TARGET := $(PRODUCT_OUT)/boot.img
+INSTALLED_BOOTIMAGE_TARGET_ANDROID := $(PRODUCT_OUT)/android-boot.img
 
 ifeq ($(TARGET_BOOTIMAGE_USE_EXT2),true)
 tmp_dir_for_image := $(call intermediates-dir-for,EXECUTABLES,boot_img)/bootimg
-INTERNAL_BOOTIMAGE_ARGS += --tmpdir $(tmp_dir_for_image)
-INTERNAL_BOOTIMAGE_ARGS += --genext2fs $(MKEXT2IMG)
+INTERNAL_BOOTIMAGE_ARGS_COMMON += --tmpdir $(tmp_dir_for_image)
+INTERNAL_BOOTIMAGE_ARGS_COMMON += --genext2fs $(MKEXT2IMG)
+INTERNAL_BOOTIMAGE_ARGS += $(INTERNAL_BOOTIMAGE_ARGS_COMMON)
+INTERNAL_BOOTIMAGE_ARGS_ANDROID += $(INTERNAL_BOOTIMAGE_ARGS_COMMON)
+
+$(INSTALLED_BOOTIMAGE_TARGET_ANDROID): $(MKEXT2IMG) $(INTERNAL_BOOTIMAGE_FILES_ANDROID)
+	$(call pretty,"Target boot image for Android: $@")
+	$(hide) $(MKEXT2BOOTIMG) $(INTERNAL_BOOTIMAGE_ARGS_ANDROID) --output $@
+
 $(INSTALLED_BOOTIMAGE_TARGET): $(MKEXT2IMG) $(INTERNAL_BOOTIMAGE_FILES)
-	$(call pretty,"Target boot image: $@")
+	$(call pretty,"Target boot image for Ubuntu Touch: $@")
 	$(hide) $(MKEXT2BOOTIMG) $(INTERNAL_BOOTIMAGE_ARGS) --output $@
 
 .PHONY: bootimage-nodeps
@@ -432,9 +472,16 @@ bootimage-nodeps: $(MKEXT2IMG)
 	$(hide) $(MKEXT2BOOTIMG) $(INTERNAL_BOOTIMAGE_ARGS) --output $(INSTALLED_BOOTIMAGE_TARGET)
 
 else # TARGET_BOOTIMAGE_USE_EXT2 != true
+INTERNAL_BOOTIMAGE_ARGS += $(INTERNAL_BOOTIMAGE_ARGS_COMMON)
+INTERNAL_BOOTIMAGE_ARGS_ANDROID += $(INTERNAL_BOOTIMAGE_ARGS_COMMON)
+
+$(INSTALLED_BOOTIMAGE_TARGET_ANDROID): $(MKBOOTIMG) $(INTERNAL_BOOTIMAGE_FILES_ANDROID)
+	$(call pretty,"Target boot image for Android: $@")
+	$(hide) $(MKBOOTIMG) $(INTERNAL_BOOTIMAGE_ARGS_ANDROID) $(BOARD_MKBOOTIMG_ARGS) --output $@
+	$(hide) $(call assert-max-image-size,$@,$(BOARD_BOOTIMAGE_PARTITION_SIZE),raw)
 
 $(INSTALLED_BOOTIMAGE_TARGET): $(MKBOOTIMG) $(INTERNAL_BOOTIMAGE_FILES)
-	$(call pretty,"Target boot image: $@")
+	$(call pretty,"Target boot image for Ubuntu Touch: $@")
 	$(hide) $(MKBOOTIMG) $(INTERNAL_BOOTIMAGE_ARGS) $(BOARD_MKBOOTIMG_ARGS) --output $@
 	$(hide) $(call assert-max-image-size,$@,$(BOARD_BOOTIMAGE_PARTITION_SIZE),raw)
 
@@ -453,6 +500,7 @@ else	# TARGET_NO_KERNEL
 # TODO: make the emulator use bootimages, and make mkbootimg accept
 #       kernel-less inputs.
 INSTALLED_BOOTIMAGE_TARGET := $(INSTALLED_RAMDISK_TARGET)
+INSTALLED_BOOTIMAGE_TARGET_ANDROID := $(INSTALLED_RAMDISK_TARGET_ANDROID)
 endif
 
 # -----------------------------------------------------------------
@@ -701,6 +749,7 @@ $(RECOVERY_INSTALL_OTA_KEYS): $(OTA_PUBLIC_KEYS) $(DUMPKEY_JAR) $(extra_keys)
 
 $(INSTALLED_RECOVERYIMAGE_TARGET): $(MKBOOTFS) $(MKBOOTIMG) $(MINIGZIP) \
 		$(INSTALLED_RAMDISK_TARGET) \
+		$(INSTALLED_RAMDISK_TARGET_ANDROID) \
 		$(INSTALLED_BOOTIMAGE_TARGET) \
 		$(recovery_binary) \
 		$(recovery_initrc) $(recovery_kernel) \
@@ -772,7 +821,8 @@ INTERNAL_SYSTEMIMAGE_FILES := $(filter $(TARGET_OUT)/%, \
     $(ALL_GENERATED_SOURCES) \
     $(ALL_DEFAULT_INSTALLED_MODULES) \
     $(PDK_FUSION_SYSIMG_FILES) \
-    $(RECOVERY_RESOURCE_ZIP))
+    $(RECOVERY_RESOURCE_ZIP) \
+    $(BOOT_ANDROID_RAMDISK_IMG))
 
 ifdef is_tests_build
 # We don't want to install tests modules to the system partition
@@ -1166,6 +1216,7 @@ endif
 # directories are up-to-date.
 $(BUILT_TARGET_FILES_PACKAGE): \
 		$(INSTALLED_BOOTIMAGE_TARGET) \
+		$(INSTALLED_BOOTIMAGE_TARGET_ANDROID) \
 		$(INSTALLED_RADIOIMAGE_TARGET) \
 		$(INSTALLED_RECOVERYIMAGE_TARGET) \
 		$(INSTALLED_SYSTEMIMAGE) \
@@ -1204,7 +1255,7 @@ endif
 	@# Components of the boot image
 	$(hide) mkdir -p $(zip_root)/BOOT
 	$(hide) $(call package_files-copy-root, \
-		$(TARGET_ROOT_OUT),$(zip_root)/BOOT/RAMDISK)
+		$(TARGET_UBUNTU_ROOT_OUT),$(zip_root)/BOOT/RAMDISK)
 ifdef INSTALLED_KERNEL_TARGET
 	$(hide) $(ACP) $(INSTALLED_KERNEL_TARGET) $(zip_root)/BOOT/kernel
 endif
@@ -1458,6 +1509,7 @@ INTERNAL_EMULATOR_PACKAGE_FILES += \
         $(HOST_OUT_EXECUTABLES)/emulator$(HOST_EXECUTABLE_SUFFIX) \
         prebuilts/qemu-kernel/$(TARGET_ARCH)/kernel-qemu \
         $(INSTALLED_RAMDISK_TARGET) \
+		$(INSTALLED_RAMDISK_TARGET_ANDROID) \
 		$(INSTALLED_SYSTEMIMAGE) \
 		$(INSTALLED_USERDATAIMAGE_TARGET)
 
@@ -1515,6 +1567,7 @@ ATREE_FILES := \
 	$(ALL_GENERATED_SOURCES) \
 	$(ALL_DEFAULT_INSTALLED_MODULES) \
 	$(INSTALLED_RAMDISK_TARGET) \
+	$(INSTALLED_RAMDISK_TARGET_ANDROID) \
 	$(ALL_DOCS) \
 	$(ALL_SDK_FILES)
 endif
@@ -1559,6 +1612,7 @@ deps := \
 	$(INSTALLED_SYSTEMIMAGE) \
 	$(INSTALLED_USERDATAIMAGE_TARGET) \
 	$(INSTALLED_RAMDISK_TARGET) \
+	$(INSTALLED_RAMDISK_TARGET_ANDROID) \
 	$(INSTALLED_SDK_BUILD_PROP_TARGET) \
 	$(INSTALLED_BUILD_PROP_TARGET) \
 	$(ATREE_FILES) \
