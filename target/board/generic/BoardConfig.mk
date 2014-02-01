@@ -5,7 +5,7 @@
 
 # The generic product target doesn't have any hardware-specific pieces.
 TARGET_NO_BOOTLOADER := true
-TARGET_NO_KERNEL := true
+TARGET_NO_KERNEL := false
 TARGET_ARCH := arm
 
 # Note: we build the platform images for ARMv7-A _without_ NEON.
@@ -74,3 +74,7 @@ BOARD_CACHEIMAGE_PARTITION_SIZE := 69206016
 BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := ext4
 BOARD_FLASH_BLOCK_SIZE := 512
 #TARGET_USERIMAGES_SPARSE_EXT_DISABLED := true
+
+TARGET_KERNEL_UBUNTU := true
+TARGET_KERNEL_UBUNTU_META := linux-image-goldfish
+TARGET_KERNEL_UBUNTU_SERIES := trusty
