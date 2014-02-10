@@ -527,6 +527,11 @@ subdirs := \
 	system/security/keystore \
 	system/security/softkeymaster
 
+ifeq ($(TARGET_DEVICE),generic_x86)
+subdirs += \
+	prebuilts/qemu-kernel/x86/pc-bios
+endif
+
 # device and vendor
 subdirs += \
 	device/asus \
