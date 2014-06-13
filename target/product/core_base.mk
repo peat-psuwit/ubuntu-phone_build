@@ -70,6 +70,7 @@ PRODUCT_PACKAGES += \
 # for Ubuntu Touch (hybris, platform-api, utils, etc)
 PRODUCT_PACKAGES += \
     libcamera_compat_layer \
+    camera_service \
     libis_compat_layer \
     libmedia_compat_layer \
     libsf_compat_layer \
