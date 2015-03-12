@@ -444,6 +444,7 @@ subdirs := \
 	external/checkpolicy \
 	external/e2fsprogs \
 	external/expat \
+	external/f2fs-tools \
 	external/flac \
 	external/freetype \
 	external/fsck_msdos \
@@ -535,6 +536,7 @@ subdirs += \
 	device/asus \
 	device/generic \
 	device/lge \
+	device/qcom \
 	device/samsung \
 	vendor/asus \
 	vendor/audience \
